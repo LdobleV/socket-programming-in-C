@@ -9,7 +9,7 @@
 #include <netdb.h>
 #include <sys/wait.h>
 #include <signal.h> 
-
+#include "commonFunctions.h"
 
 //#define PORT "21" // puerto FTP
 
@@ -20,13 +20,31 @@
 #define A221 "221 bye bye!"
 #define A230 "230 login correct"
 #define A530 "530 login incorrect"
-#define A331 "331 the user requires password:"
+#define A331 "331 the specified user requieres password"
+#define A503 "503 the command is not implemented"
 #define MAXDATASIZE 50
+
+int parser(char *command){ //Aca con el comando del cliente extraemos el codigo de 4 letras para ver que comando es
+    char code[5];
+    strncpy(code, command, 4);
+    code[4] = '\0';
+    if(strcmp(code, "QUIT") == 0){
+        return 0;//Terminar la conexion
+    }
+    if(strcmp(code, "USER") == 0){
+        return 1;//Enviar nombre de usuariol
+    }
+    if(strcmp(code, "PASS") == 0){
+        return 2;//Enviar contraseña
+    }
+    return -1;//No reconocido
+}
+
 
 int main(int argc, char *argv[]){
     const char s[] = " ";
-    int sockfd, new_fd, ext = 1; // listen on sock_fd, new connection on new_fd
-    struct addrinfo hints, *servinfo, *p;
+    int loginStatus, sockfd, new_fd, ext = 1, commandCode; // listen on sock_fd, new connection on new_fd
+    struct addrinfo *comSocket;
     struct sockaddr_storage their_addr; // connector's address information
     socklen_t sin_size;
     struct sigaction sa;
@@ -42,7 +60,8 @@ int main(int argc, char *argv[]){
     user = malloc(sizeof(char) * MAXDATASIZE);
     buf = malloc(sizeof(char) * MAXDATASIZE);
 
-    memset(&hints, 0, sizeof hints);
+    sockfd = createSocket(NULL, &comSocket, port);
+    /*memset(&hints, 0, sizeof hints); //Capaz conviene hacer una funcion que reconsiga el addrinfo?
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
@@ -54,7 +73,7 @@ int main(int argc, char *argv[]){
     }
 
     // loop through all the results and bind to the first we can
-    for(p = servinfo; p != NULL; p = p->ai_next) {
+    for(p = servinfo; p != NULL; p = p->ai_next) { //Hacer una funcion de bind que reciba p
         if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
             perror("server: socket");
             continue;
@@ -63,20 +82,13 @@ int main(int argc, char *argv[]){
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
         perror("setsockopt");
         exit(1);
-    }
+    }*/
 
-    if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+    if (bind(sockfd, comSocket->ai_addr, comSocket->ai_addrlen) == -1) {
         close(sockfd);
         perror("server: bind");
-        continue;
     }
-
-    break;
-    }
-
-    freeaddrinfo(servinfo); // all done with this structure
-
-    if (p == NULL) {
+    if (comSocket == NULL) {
         fprintf(stderr, "server: failed to bind\n");
         exit(1);
     }
@@ -86,57 +98,60 @@ int main(int argc, char *argv[]){
         exit(1);
     }
 
+    freeaddrinfo(comSocket);
+
     printf("Server: waiting for connections...\n");
-    while(1){ // main accept() loop
+    while(1){ // Loop principal para aceptar conexiones
 
         sin_size = sizeof their_addr;
-        new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
-
-        if (new_fd == -1) {
+        if((new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size)) == -1){
             perror("accept");
             continue;
         }
 
         if(send(new_fd, A220, strlen(A220), 0) == -1)
                 perror("send");
-        
-        while(ext){
+        loginStatus = 0;
+        while(ext){ // Al establecer la conexion se entra en el while del cliente (Rehacer con el uso de un parser)
 
-            if(recv(new_fd, buf, MAXDATASIZE, 0) == -1)
-                perror("recv");
+            receive(new_fd, buf, MAXDATASIZE);
 
-            strcpy(user, buf);
+            commandCode = parser(buf);
             
-            token = strtok(user, s);
-
-            if(strcmp(token, "USER") == 0){
-                if(send(new_fd, A331, strlen(A331), 0) == -1)
-                    perror("send");
-            }
-
-            token = strtok(NULL, s);
-
-            user = token;
-            user[strlen(user) - 1] = '\0';
-            
-
-            if(recv(new_fd, buf, MAXDATASIZE, 0) == -1)
-                perror("recv");
-
-
-            token = strtok(buf, s);
-
-            if(strcmp(token, "PASS") == 0){
-                token = strtok(NULL, s);
-                token[strlen(token) - 2] = '\0';
-                if(strcmp(token, "1234") == 0 && strcmp(user, "lucas") == 0){
-                    if(send(new_fd, A230, strlen(A230), 0) == -1)
+            switch (commandCode) //Despues de conseguir el codigo del comando, el switch ejecuta la accion acorde
+            {
+                case 0:
+                    if(send(new_fd, A221, strlen(A221), 0) == -1)
                         perror("send");
-                }else{
-                    if(send(new_fd, A530, strlen(A530), 0) == -1){
+                    ext = 0;
+                break;
+
+                case 1:
+                    strcpy(user, &buf[5]);
+                    user[strlen(user) - 1] = '\0';
+                    if(send(new_fd, A331, strlen(A331), 0) == -1)
                         perror("send");
-                    }
-                }
+                break;
+                
+                case 2:
+                    token = strtok(buf, s);
+                    token = strtok(NULL, s);
+                    token[strlen(token) - 2] = '\0';
+                    if(strcmp(token, "1234") == 0 && strcmp(user, "lucas") == 0){
+                        loginStatus = 1;
+                        if(send(new_fd, A230, strlen(A230), 0) == -1)
+                            perror("send");
+                    }else{
+                        if(send(new_fd, A530, strlen(A530), 0) == -1)
+                            perror("send");
+                        }
+                break;
+
+                default:
+                    fflush(stdout);
+                    if(send(new_fd, A503, strlen(A503), 0) == -1)
+                        perror("send");
+                    continue;
             }
         }
         close(new_fd);
@@ -144,3 +159,4 @@ int main(int argc, char *argv[]){
 
     close(sockfd);
 }
+

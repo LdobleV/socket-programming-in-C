@@ -7,29 +7,19 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include "commonFunctions.h"
 
 //#define PORT "21" //puerto FTP
 
-#define MAXDATASIZE 100 // max number of bytes we can get at once 
-/* intento de funcion de receive
-int receive(int sd, char *buf, size_t buffSize){
-    int result = 0;
-    size_t received;
+int codeToInt(char *str){
+    char code[4];
+    strncpy(code, str, 3);
 
-    while(total < buffSize){
-        if ((received = recv(sockfd, buf, MAXDATASIZE, 0)) == -1)
-			perror("recv");
-        
-        if(received == 0){
-            buffer[result] = '\0';
-            return result;
-        }
-        else
-            result+=received;
-    }
-    return total;
+    return (code[0] - '0') * 100 + (code[1] - '0') * 10 + (code[2] - '0');
 }
-*/
+
+#define MAXDATASIZE 100 // max number of bytes we can get at once 
+
 
 int main(int argc, char *argv[]) {
 	int sockfd, numbytes, ext = 1;  
@@ -37,7 +27,6 @@ int main(int argc, char *argv[]) {
 	struct addrinfo hints, *servinfo, *p;
 	int rv;
     char *ip_address = argv[1], *port = argv[2]; // puerto e ip ingresables
-	char s[INET6_ADDRSTRLEN];
     size_t bytesRec;
 
 	if (argc != 3) {
@@ -53,9 +42,9 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		return 1;
 	}
-
+	
 	// loop through all the results and connect to the first we can
-	for(p = servinfo; p != NULL; p = p->ai_next) {
+	for(p = servinfo; p != NULL; p = p->ai_next) { 
 		if ((sockfd = socket(p->ai_family, p->ai_socktype,
 				p->ai_protocol)) == -1) {
 			perror("client: socket");
@@ -71,7 +60,7 @@ int main(int argc, char *argv[]) {
 		break;
 	}
 
-	if (p == NULL) {
+	if (p == NULL) { 
 		fprintf(stderr, "client: failed to connect\n");
 		return 2;
 	}
@@ -85,36 +74,20 @@ int main(int argc, char *argv[]) {
 
 	fprintf(stdout,"\n%s\n", buf);
 
-	while(ext){
-		fgets(buf, MAXDATASIZE, stdin); //Scanf that supports spaces (user)
+
+	while(ext){ //Una vez conectado, se entrae en el while de recibir y enviar
+		fgets(buf, MAXDATASIZE, stdin); 
 		if(send(sockfd, buf, strlen(buf), 0) == -1)
 			perror("send");
 
-		if ((bytesRec = recv(sockfd, buf, MAXDATASIZE, 0)) == -1)
-			perror("recv");
-
-        buf[(int)bytesRec] = '\0';
-		
-		fprintf(stdout, "\n%s\n", buf);
-
-		fgets(buf, MAXDATASIZE, stdin); //Scanf that supports spaces (password)
-		if(send(sockfd, buf, strlen(buf), 0) == -1)
-			perror("send");
-		
-		if ((bytesRec = recv(sockfd, buf, MAXDATASIZE, 0)) == -1)
-			perror("recv");
-
+		bytesRec = receive(sockfd, buf, MAXDATASIZE);
         buf[(int)bytesRec] = '\0';
 
+		fprintf(stdout, "%s\n", buf);
 
-		fprintf(stdout, "\n%s\n", buf);
+        if(codeToInt(buf) == 221)
+            ext = 0;
 	}
-
-
-
-	buf[numbytes] = '\0';
-
-	fprintf(stderr, "client: received '%s'\n",buf);
 
 	close(sockfd);
 
